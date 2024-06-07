@@ -1,30 +1,52 @@
-{
-  "env": {
-    "commonjs": true,
-    "es2017": true,
-    "mocha": true,
-    "node": true
-  },
-  "extends": ["eslint:recommended", "plugin:prettier/recommended"],
-  "overrides": [
-    {
-      "env": {
-        "jest/globals": true
-      },
-      "files": ["**/*.test.js"],
-      "plugins": ["jest"]
-    }
-  ],
-  "parser": "@babel/eslint-parser",
-  "parserOptions": {
-    "ecmaVersion": 9
-  },
-  "plugins": ["prettier"],
-  "rules": {
-    "no-unused-vars": ["error", { "argsIgnorePattern": "^_" }],
-    "no-var": "error",
-    "prefer-arrow-callback": "error",
-    "prefer-const": "error",
-    "prettier/prettier": "error"
-  }
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"strings"
+
+	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/network/armnetwork"
+)
+
+func main() {
+	// Define parameters
+	subscriptionID := "<your_subscription_id>"
+	resourceGroupName := "<your_resource_group_name>"
+	location := "<your_location>"
+	vnetName := fmt.Sprintf("core-vnet-%s", location)
+	suffixes := []string{"blue", "green", "yellow", "purple"}
+
+	// Create a credential
+	cred, err := azidentity.NewDefaultAzureCredential(nil)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to obtain a credential: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Create a network client
+	client, err := armnetwork.NewVirtualNetworksClient(subscriptionID, cred, nil)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to create network client: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Get the VNet
+	ctx := context.Background()
+	vnet, err := client.Get(ctx, resourceGroupName, vnetName, nil)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to get VNet: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Filter subnets by suffix and print their CIDR ranges
+	for _, subnet := range vnet.Properties.Subnets {
+		subnetName := *subnet.Name
+		for _, suffix := range suffixes {
+			if strings.HasSuffix(subnetName, suffix) {
+				fmt.Printf("%s = %s\n", suffix, *subnet.Properties.AddressPrefix)
+			}
+		}
+	}
 }
