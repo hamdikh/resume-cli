@@ -1,52 +1,58 @@
 package main
 
 import (
-	"context"
+	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"os"
-	"strings"
-
-	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
-	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/network/armnetwork"
+	"path/filepath"
 )
 
+// Struct to unmarshal JSON data
+type ProjectConfig struct {
+	AksClusterSubnetAddressPrefixes map[string]string `json:"aks_cluster_subnet_address_prefixes"`
+}
+
 func main() {
-	// Define parameters
-	subscriptionID := "<your_subscription_id>"
-	resourceGroupName := "<your_resource_group_name>"
-	location := "<your_location>"
-	vnetName := fmt.Sprintf("core-vnet-%s", location)
-	suffixes := []string{"blue", "green", "yellow", "purple"}
+	// Define the root directory where your subscriptions are located
+	rootDir := "."
 
-	// Create a credential
-	cred, err := azidentity.NewDefaultAzureCredential(nil)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to obtain a credential: %v\n", err)
-		os.Exit(1)
-	}
+	// Walk through the root directory
+	err := filepath.Walk(rootDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
 
-	// Create a network client
-	client, err := armnetwork.NewVirtualNetworksClient(subscriptionID, cred, nil)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to create network client: %v\n", err)
-		os.Exit(1)
-	}
+		// Check if the current path is a project.auto.tfvars.json file
+		if info.Name() == "project.auto.tfvars.json" {
+			// Read the file content
+			content, err := ioutil.ReadFile(path)
+			if err != nil {
+				return err
+			}
 
-	// Get the VNet
-	ctx := context.Background()
-	vnet, err := client.Get(ctx, resourceGroupName, vnetName, nil)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to get VNet: %v\n", err)
-		os.Exit(1)
-	}
+			// Unmarshal the JSON content
+			var config ProjectConfig
+			err = json.Unmarshal(content, &config)
+			if err != nil {
+				return err
+			}
 
-	// Filter subnets by suffix and print their CIDR ranges
-	for _, subnet := range vnet.Properties.Subnets {
-		subnetName := *subnet.Name
-		for _, suffix := range suffixes {
-			if strings.HasSuffix(subnetName, suffix) {
-				fmt.Printf("%s = %s\n", suffix, *subnet.Properties.AddressPrefix)
+			// Check if blue and green sections are defined
+			blue, blueExists := config.AksClusterSubnetAddressPrefixes["blue"]
+			green, greenExists := config.AksClusterSubnetAddressPrefixes["green"]
+
+			if blueExists && greenExists {
+				fmt.Printf("Project path: %s\n", path)
+				fmt.Printf("Blue subnet: %s\n", blue)
+				fmt.Printf("Green subnet: %s\n", green)
 			}
 		}
+
+		return nil
+	})
+
+	if err != nil {
+		fmt.Printf("Error walking the path %v: %v\n", rootDir, err)
 	}
 }
